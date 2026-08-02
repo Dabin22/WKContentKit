@@ -123,7 +123,10 @@ final class DemoModel: NSObject, ObservableObject, WKNavigationDelegate {
         do {
             try await operation()
         } catch {
-            show(error: error.localizedDescription)
+            let suggestion = (error as? LocalizedError)?.recoverySuggestion
+            show(error: [error.localizedDescription, suggestion]
+                .compactMap { $0 }
+                .joined(separator: " "))
         }
     }
 

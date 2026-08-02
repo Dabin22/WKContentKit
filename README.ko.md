@@ -26,6 +26,19 @@ WKContentKit은 `WKWebView` 로딩 완료 감지, DOM·폰트·이미지 안정�
 - lazy-loaded content 탐색, timeout 및 pixel count 기반 메모리 제한
 - 외부 dependency 없음
 
+## 설치
+
+Xcode의 Package Dependencies에서 `https://github.com/Dabin22/WKContentKit.git`을 추가하고 **Up to Next Minor Version** 규칙으로 `0.1.0`을 선택한 다음 필요한 product를 연결합니다.
+
+`Package.swift`에서는 다음과 같이 추가합니다.
+
+```swift
+.package(
+    url: "https://github.com/Dabin22/WKContentKit.git",
+    .upToNextMinor(from: "0.1.0")
+)
+```
+
 ## 준비 상태 기다리기
 
 ```swift
@@ -67,6 +80,8 @@ let data = image.jpegData(compressionQuality: 0.8)
 
 내부 캡처는 viewport 타일 단위로 수행하지만 공개 결과는 하나의 `UIImage`입니다. 최종 bitmap을 만들기 전에 pixel count를 검사하며, `maximumPixelCount`를 넘으면 `CaptureError.imageTooLarge`를 반환합니다.
 
+기본 캡처 폭은 750px로 제한됩니다. 2천만 pixel 메모리 한도를 유지하면서 일반적인 모바일 페이지를 전송하기 적합한 크기로 더 길게 캡처하기 위한 값입니다. 디스플레이의 네이티브 해상도가 필요하면 `maximumPixelWidth`를 `nil`로 지정합니다.
+
 ## 데모 앱
 
 `Examples/DemoApp/DemoApp.xcodeproj`를 열고 iOS Simulator를 선택한 다음 `DemoApp` scheme을 실행합니다. 저장소 루트의 패키지가 로컬로 연결되어 있습니다.
@@ -83,3 +98,7 @@ let data = image.jpegData(compressionQuality: 0.8)
 ## 라이선스
 
 WKContentKit은 MIT License로 제공됩니다.
+
+## 버전 정책
+
+WKContentKit은 [Semantic Versioning](https://semver.org/)을 따릅니다. `1.0.0` 이전에는 minor release에 호환되지 않는 API 변경이 포함될 수 있으며 patch release는 하위 호환성을 유지합니다.

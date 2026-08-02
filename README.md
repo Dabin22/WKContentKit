@@ -28,7 +28,16 @@ Use WKContentKit to detect when `WKWebView` content is ready, wait for DOM, font
 
 ## Installation
 
-Add `https://github.com/Dabin22/WKContentKit.git` in Xcode's Package Dependencies UI, then select either product.
+Add `https://github.com/Dabin22/WKContentKit.git` in Xcode's Package Dependencies UI, select version `0.1.0` using the **Up to Next Minor Version** rule, then select either product.
+
+For a `Package.swift` dependency:
+
+```swift
+.package(
+    url: "https://github.com/Dabin22/WKContentKit.git",
+    .upToNextMinor(from: "0.1.0")
+)
+```
 
 ## Readiness
 
@@ -71,6 +80,8 @@ let data = image.jpegData(compressionQuality: 0.8)
 
 Capture is tile-based internally, but the public result is one `UIImage`. The package checks the final pixel count before allocating the bitmap and throws `CaptureError.imageTooLarge` when it exceeds `maximumPixelCount`.
 
+The default capture width is capped at 750 pixels so typical mobile pages can be captured at a practical upload size while the 20-million-pixel memory limit remains in place. Set `maximumPixelWidth` to `nil` for native display resolution.
+
 ## Demo app
 
 Open `Examples/DemoApp/DemoApp.xcodeproj`, select an iOS Simulator, and run the `DemoApp` scheme. The app uses the package from the repository root.
@@ -87,3 +98,7 @@ Open `Examples/DemoApp/DemoApp.xcodeproj`, select an iOS Simulator, and run the 
 ## License
 
 WKContentKit is available under the MIT License.
+
+## Versioning
+
+WKContentKit follows [Semantic Versioning](https://semver.org/). Before `1.0.0`, minor releases may contain breaking API changes and patch releases remain backward compatible.
