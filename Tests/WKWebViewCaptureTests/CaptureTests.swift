@@ -18,6 +18,27 @@ final class CaptureTests: XCTestCase {
         )
     }
 
+    func testCaptureDestinationConvertsFromTopToBottomOrigin() {
+        XCTAssertEqual(
+            captureDestinationY(
+                pixelHeight: 300,
+                offsetY: 0,
+                viewportHeight: 100,
+                scale: 1
+            ),
+            200
+        )
+        XCTAssertEqual(
+            captureDestinationY(
+                pixelHeight: 300,
+                offsetY: 200,
+                viewportHeight: 100,
+                scale: 1
+            ),
+            0
+        )
+    }
+
     func testImageTooLargeExplainsRecovery() {
         let error = CaptureError.imageTooLarge
 

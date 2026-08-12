@@ -66,6 +66,12 @@ import WKWebViewCapture
 let image = try await webView.captureFullPage()
 ```
 
+<p align="center">
+  <a href="Assets/WKContentKit-full-page.png">
+    <img src="Assets/WKContentKit-full-page-readme.png" width="180" alt="Full-page WKWebView capture produced by WKContentKit">
+  </a>
+</p>
+
 For an upload-sized error report, reduce output width before capture and use UIKit's native encoder:
 
 ```swift
