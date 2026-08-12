@@ -69,7 +69,7 @@ struct ContentView: View {
 final class DemoModel: NSObject, ObservableObject, WKNavigationDelegate {
     let webView = WKWebView()
 
-    @Published var address = "https://example.com"
+    @Published var address = "demo://long-page"
     @Published var status = "Load a page to begin."
     @Published var image: UIImage?
     @Published var isWorking = false
@@ -81,6 +81,14 @@ final class DemoModel: NSObject, ObservableObject, WKNavigationDelegate {
     }
 
     func load() {
+        if address == "demo://long-page" {
+            image = nil
+            isError = false
+            status = "Loading demo page…"
+            webView.loadHTMLString(Self.demoHTML, baseURL: nil)
+            return
+        }
+
         guard let url = URL(string: address),
               let scheme = url.scheme?.lowercased(),
               scheme == "https" || scheme == "http" else {
@@ -136,9 +144,11 @@ final class DemoModel: NSObject, ObservableObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-        if status == "Loading…" {
+        if status == "Loading…" || status == "Loading demo page…" {
             status = "Page loaded. Use readiness to verify dynamic content."
         }
+
+
     }
 
     func webView(
@@ -148,6 +158,27 @@ final class DemoModel: NSObject, ObservableObject, WKNavigationDelegate {
     ) {
         show(error: error.localizedDescription)
     }
+
+    private static let demoHTML = #"""
+    <!doctype html>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      * { box-sizing: border-box } body { margin: 0; font: 16px -apple-system; color: #172033; background: #f5f7fb }
+      header { padding: 54px 24px; color: white; background: linear-gradient(135deg, #5754e8, #18a7c8) }
+      h1 { margin: 0 0 10px; font-size: 36px } header p { margin: 0; opacity: .85 }
+      main { padding: 20px } article { margin: 0 0 16px; padding: 24px; border-radius: 18px; background: white; box-shadow: 0 5px 18px #18213a12 }
+      .number { color: #5754e8; font-size: 13px; font-weight: 700 } h2 { margin: 8px 0 } p { line-height: 1.55 }
+      footer { padding: 42px 24px; text-align: center; color: white; background: #172033 }
+    </style>
+    <header><h1>WKContentKit</h1><p>A deterministic long page for full-page capture.</p></header>
+    <main id="content"></main>
+    <footer>Ready. Stable. Captured.</footer>
+    <script>
+      const root = document.querySelector('#content')
+      for (let i = 1; i <= 8; i++) root.insertAdjacentHTML('beforeend',
+        `<article><div class="number">SECTION ${String(i).padStart(2, '0')}</div><h2>Content that keeps going</h2><p>WKContentKit waits for dynamic content, captures viewport-sized tiles, and merges them into one bounded image.</p></article>`)
+    </script>
+    """#
 }
 
 struct WebView: UIViewRepresentable {

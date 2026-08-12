@@ -94,19 +94,20 @@ public extension WKWebView {
                 throw CaptureError.snapshotFailed
             }
 
-            context.saveGState()
-            context.translateBy(x: 0, y: CGFloat(metrics.pixelHeight))
-            context.scaleBy(x: 1, y: -1)
             context.draw(
                 cgImage,
                 in: CGRect(
                     x: 0,
-                    y: offsetY * metrics.scale,
+                    y: captureDestinationY(
+                        pixelHeight: metrics.pixelHeight,
+                        offsetY: offsetY,
+                        viewportHeight: bounds.height,
+                        scale: metrics.scale
+                    ),
                     width: CGFloat(metrics.pixelWidth),
                     height: bounds.height * metrics.scale
                 )
             )
-            context.restoreGState()
         }
 
         guard let image = context.makeImage() else {
@@ -329,6 +330,15 @@ private extension WKWebView {
         }
         return remaining
     }
+}
+
+func captureDestinationY(
+    pixelHeight: Int,
+    offsetY: CGFloat,
+    viewportHeight: CGFloat,
+    scale: CGFloat
+) -> CGFloat {
+    CGFloat(pixelHeight) - (offsetY + viewportHeight) * scale
 }
 
 func captureOffsets(
