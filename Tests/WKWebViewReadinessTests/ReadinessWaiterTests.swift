@@ -68,8 +68,8 @@ private func policy(
     )
 }
 
+@MainActor
 final class ReadinessWaiterTests: XCTestCase {
-    @MainActor
     func testReturnsAsSoonAsPolicyIsSatisfied() async throws {
         let evaluator = FakeEvaluator([snapshot()])
         let waiter = ReadinessWaiter(evaluator: evaluator, pollInterval: 0.01)
@@ -79,7 +79,6 @@ final class ReadinessWaiterTests: XCTestCase {
         XCTAssertEqual(evaluator.callCount, 1)
     }
 
-    @MainActor
     func testWaitsUntilContentStopsChanging() async throws {
         let evaluator = FakeEvaluator([
             snapshot(readyState: "loading"),
@@ -94,7 +93,6 @@ final class ReadinessWaiterTests: XCTestCase {
         XCTAssertGreaterThan(evaluator.callCount, 4)
     }
 
-    @MainActor
     func testTimesOutWhenPolicyIsNeverSatisfied() async {
         let evaluator = FakeEvaluator([snapshot(pendingImages: 1)])
         let waiter = ReadinessWaiter(evaluator: evaluator, pollInterval: 0.01)
@@ -105,7 +103,6 @@ final class ReadinessWaiterTests: XCTestCase {
     }
 
     /// Before the timeout covered JavaScript evaluation, this case waited forever.
-    @MainActor
     func testTimesOutWhenJavaScriptNeverReturns() async {
         let evaluator = FakeEvaluator([.hang])
         let waiter = ReadinessWaiter(evaluator: evaluator, pollInterval: 0.01)
@@ -118,7 +115,6 @@ final class ReadinessWaiterTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(startedAt), 1)
     }
 
-    @MainActor
     func testPropagatesJavaScriptErrors() async {
         let evaluator = FakeEvaluator([.failure(TestError())])
         let waiter = ReadinessWaiter(evaluator: evaluator, pollInterval: 0.01)
@@ -128,7 +124,6 @@ final class ReadinessWaiterTests: XCTestCase {
         }
     }
 
-    @MainActor
     func testRejectsMalformedProbeResult() async {
         let evaluator = FakeEvaluator([.json("not json")])
         let waiter = ReadinessWaiter(evaluator: evaluator, pollInterval: 0.01)
@@ -138,7 +133,6 @@ final class ReadinessWaiterTests: XCTestCase {
         }
     }
 
-    @MainActor
     func testRejectsInvalidPolicyBeforeEvaluating() async {
         let evaluator = FakeEvaluator([snapshot()])
         let waiter = ReadinessWaiter(evaluator: evaluator, pollInterval: 0.01)
@@ -164,6 +158,7 @@ final class ReadinessWaiterTests: XCTestCase {
     }
 }
 
+@MainActor
 private func assertThrows<E: Error & Equatable>(
     _ expected: E,
     file: StaticString = #filePath,
