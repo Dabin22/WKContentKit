@@ -19,6 +19,10 @@ WKContentKit은 `WKWebView` 로딩 완료 감지, DOM·폰트·이미지 안정�
 
 `WKWebViewCapture`는 `WKWebViewReadiness`에 의존합니다.
 
+## 왜 만들었나
+
+`WKWebView.takeSnapshot`은 보이는 영역만 찍고, lazy 이미지나 늦게 그려지는 DOM은 빠지기 쉽습니다. 아이트래킹 웹 분석 앱에서 "언제 페이지가 준비됐는지"와 "긴 페이지를 메모리 안에서 어떻게 한 장으로 만들지"를 반복해서 풀다가 패키지로 분리했습니다.
+
 ## 주요 기능
 
 - document 상태, DOM mutation, font, image 및 custom JavaScript 조건을 이용한 `WKWebView` readiness 감지
@@ -74,6 +78,46 @@ options.maximumPixelWidth = 1_440
 
 let image = try await webView.captureFullPage(options: options)
 let data = image.jpegData(compressionQuality: 0.8)
+```
+
+## 동작 방식
+
+**Readiness** (`waitUntilContentIsReady`)는 100ms마다 작은 JavaScript probe를 실행합니다. probe는 `document.readyState`, 폰트 로딩, 대기 중인 이미지, `MutationObserver` 변경 횟수, 문서 높이를 보고합니다. 정책 조건을 만족하고 변경 횟수와 높이가 `stabilityDuration` 동안 그대로이면 준비된 것으로 봅니다. 그 전에 timeout이 지나면 `ReadinessError.timedOut`을 던집니다. timeout은 각 JavaScript 호출에도 적용되므로 `evaluateJavaScript`가 응답하지 않는 페이지도 멈추지 않고 제시간에 실패합니다.
+
+**Capture** (`captureFullPage`):
+
+1. WebView의 스크롤·상호작용 상태를 기록하고 사용자 입력을 막습니다.
+2. 페이지를 한 번 훑어 lazy content를 불러오고, 단계마다 readiness를 기다립니다.
+3. 결과 크기를 계산하고 **bitmap을 할당하기 전에 pixel 한도를 검사**합니다.
+4. viewport 단위로 스크롤하며 타일을 찍어 하나의 `CGContext`에 그립니다.
+5. 성공·실패·취소와 관계없이 `defer`에서 원래 상태를 복원합니다.
+
+## 설계 메모
+
+- **Main actor 격리.** WebKit 접근은 모두 `@MainActor`입니다. 공개 옵션과 오류는 `Sendable` 값 타입입니다.
+- **재진입 방지.** 캡처는 main actor에서 여러 번 suspend됩니다. 첫 `await` 전에 동기적으로 WebView를 등록하고, 동시 호출은 `CaptureError.alreadyInProgress`로 실패시킵니다.
+- **`await` 이후 상태 재검증.** 타일마다 문서가 바뀌지 않았는지(`documentChangedDuringCapture`), 높이가 변하지 않았는지(`contentChangedDuringCapture`) 다시 확인합니다.
+- **협력적 취소.** 루프에서 `Task.checkCancellation()`을 호출하므로 호출한 task를 취소하면 다음 단계에서 멈춥니다.
+- **JavaScript까지 포함한 timeout.** `evaluateJavaScript`는 취소할 수 없고, task group은 모든 자식이 끝나야 반환합니다. 그래서 각 probe를 continuation을 정확히 한 번만 재개하는 취소 대응 브리지로 감싸고, 남은 시간 동안 타이머와 경주시킵니다.
+- **보장 대신 예산.** readiness는 네트워크 완료 증명이 아니라 정책 만족입니다. 캡처는 한도 없는 이미지를 할당하지 않고 복구 방법과 함께 빨리 실패합니다.
+
+## 오류
+
+| 오류 | 발생 시점 | 해볼 것 |
+| --- | --- | --- |
+| `CaptureError.imageTooLarge` | 결과가 `maximumPixelCount` 초과 | `maximumPixelWidth`를 낮추거나 `loadLazyContent`를 끄거나 한도를 올림 |
+| `CaptureError.timedOut` | 캡처가 `timeout` 초과 | timeout을 늘리거나 덜 동적인 페이지를 캡처 |
+| `CaptureError.contentChangedDuringCapture` | 캡처 중 페이지 높이 변경 | 페이지 변화가 멈춘 뒤 재시도 |
+| `CaptureError.documentChangedDuringCapture` | 캡처 중 navigation 발생 | navigation 완료 후 재시도 |
+| `CaptureError.alreadyInProgress` | 같은 WebView에서 캡처 진행 중 | 첫 캡처가 끝날 때까지 대기 |
+| `ReadinessError.timedOut` | `timeout` 전에 정책 미충족 | 느슨한 preset 사용 또는 `customJavaScript` 추가 |
+
+## 테스트
+
+readiness 루프는 `WKWebView`를 직접 쓰지 않고 내부 protocol(`JavaScriptEvaluating`)을 통해 페이지와 통신합니다. 단위 테스트는 이를 정해진 probe 결과를 돌려주거나, 실패하거나, 끝내 응답하지 않는 fake로 바꿔서 웹 페이지 없이 정책·안정화·timeout·오류 경로를 검증합니다.
+
+```sh
+xcodebuild test -scheme WKContentKit-Package -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
 ```
 
 ## 메모리

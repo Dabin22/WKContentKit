@@ -3,19 +3,58 @@ import WebKit
 
 @MainActor
 public extension WKWebView {
+    /// Waits until the page satisfies `policy`.
+    ///
+    /// The timeout covers the whole wait, including JavaScript evaluation that never
+    /// returns. When the timeout passes, this throws ``ReadinessError/timedOut``.
     func waitUntilContentIsReady(
         policy: ReadinessPolicy = .balanced
     ) async throws {
+        try await ReadinessWaiter(evaluator: self).wait(policy: policy)
+    }
+}
+
+/// Polls a JavaScript probe until a ``ReadinessPolicy`` is satisfied.
+///
+/// Separated from `WKWebView` so the waiting logic can be unit-tested with a fake
+/// ``JavaScriptEvaluating`` source.
+@MainActor
+package struct ReadinessWaiter {
+    package let evaluator: any JavaScriptEvaluating
+    package let pollInterval: TimeInterval
+
+    package init(
+        evaluator: any JavaScriptEvaluating,
+        pollInterval: TimeInterval = 0.1
+    ) {
+        self.evaluator = evaluator
+        self.pollInterval = pollInterval
+    }
+
+    package func wait(policy: ReadinessPolicy) async throws {
         try policy.validate()
 
+        let script = ReadinessScript.make(customJavaScript: policy.customJavaScript)
         let startedAt = ProcessInfo.processInfo.systemUptime
         var lastSignature: StabilitySignature?
         var stableSince: TimeInterval?
 
-        while ProcessInfo.processInfo.systemUptime - startedAt < policy.timeout {
+        while true {
             try Task.checkCancellation()
 
-            let snapshot = try await readinessSnapshot(policy: policy)
+            let remaining = policy.timeout - (ProcessInfo.processInfo.systemUptime - startedAt)
+            guard remaining > 0 else {
+                throw ReadinessError.timedOut
+            }
+
+            let evaluator = self.evaluator
+            let json = try await withTimeout(
+                seconds: remaining,
+                onTimeout: ReadinessError.timedOut
+            ) {
+                try await evaluateString(script, using: evaluator)
+            }
+            let snapshot = try ReadinessSnapshot.decode(json)
             let signature = StabilitySignature(
                 mutationCount: snapshot.mutationCount,
                 height: snapshot.height
@@ -26,11 +65,11 @@ public extension WKWebView {
                     return
                 }
 
+                let now = ProcessInfo.processInfo.systemUptime
                 if signature != lastSignature {
-                    stableSince = ProcessInfo.processInfo.systemUptime
+                    stableSince = now
                 } else if let stableSince,
-                          ProcessInfo.processInfo.systemUptime - stableSince
-                            >= policy.stabilityDuration {
+                          now - stableSince >= policy.stabilityDuration {
                     return
                 }
             } else {
@@ -38,10 +77,10 @@ public extension WKWebView {
             }
 
             lastSignature = signature
-            try await Task<Never, Never>.sleep(nanoseconds: 100_000_000)
+            try await Task<Never, Never>.sleep(
+                nanoseconds: UInt64(pollInterval * 1_000_000_000)
+            )
         }
-
-        throw ReadinessError.timedOut
     }
 }
 
@@ -53,6 +92,14 @@ struct ReadinessSnapshot: Decodable {
     let mutationCount: Int
     let height: Int
     let customReady: Bool
+
+    static func decode(_ json: String) throws -> ReadinessSnapshot {
+        guard let data = json.data(using: .utf8),
+              let snapshot = try? JSONDecoder().decode(ReadinessSnapshot.self, from: data) else {
+            throw ReadinessError.invalidJavaScriptResult
+        }
+        return snapshot
+    }
 
     func satisfies(_ policy: ReadinessPolicy) -> Bool {
         let documentReady: Bool
@@ -80,12 +127,12 @@ struct ReadinessSnapshot: Decodable {
     }
 }
 
-private struct StabilitySignature: Equatable {
+struct StabilitySignature: Equatable {
     let mutationCount: Int
     let height: Int
 }
 
-private extension ReadinessPolicy {
+extension ReadinessPolicy {
     func validate() throws {
         guard timeout > 0, timeout.isFinite else {
             throw ReadinessError.invalidPolicy("timeout must be greater than zero")
@@ -100,16 +147,13 @@ private extension ReadinessPolicy {
     }
 }
 
-@MainActor
-private extension WKWebView {
-    func readinessSnapshot(
-        policy: ReadinessPolicy
-    ) async throws -> ReadinessSnapshot {
-        let customExpression = policy.customJavaScript
+enum ReadinessScript {
+    static func make(customJavaScript: String?) -> String {
+        let customExpression = customJavaScript
             .map { "Boolean((\($0)))" }
             ?? "true"
 
-        let script = """
+        return """
         (() => {
             const key = "__wkContentKitReadinessV1";
             let state = window[key];
@@ -164,25 +208,5 @@ private extension WKWebView {
             });
         })()
         """
-
-        let json = try await evaluateJavaScriptString(script)
-        guard let data = json.data(using: .utf8) else {
-            throw ReadinessError.invalidJavaScriptResult
-        }
-        return try JSONDecoder().decode(ReadinessSnapshot.self, from: data)
-    }
-
-    func evaluateJavaScriptString(_ script: String) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            evaluateJavaScript(script) { value, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else if let value = value as? String {
-                    continuation.resume(returning: value)
-                } else {
-                    continuation.resume(throwing: ReadinessError.invalidJavaScriptResult)
-                }
-            }
-        }
     }
 }

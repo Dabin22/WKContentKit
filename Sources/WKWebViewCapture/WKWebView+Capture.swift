@@ -34,7 +34,7 @@ public extension WKWebView {
         }
 
         let deadline = ProcessInfo.processInfo.systemUptime + options.timeout
-        let documentIdentifier = try await captureDocumentIdentifier()
+        let documentIdentifier = try await captureDocumentIdentifier(deadline: deadline)
 
         if options.loadLazyContent {
             try await prepareLazyContent(
@@ -45,7 +45,7 @@ public extension WKWebView {
         }
 
         try await waitForCaptureReadiness(options: options, deadline: deadline)
-        try await ensureDocument(documentIdentifier)
+        try await ensureDocument(documentIdentifier, deadline: deadline)
         try checkDeadline(deadline)
 
         scrollView.setContentOffset(.zero, animated: false)
@@ -76,7 +76,7 @@ public extension WKWebView {
         ) {
             try Task.checkCancellation()
             try checkDeadline(deadline)
-            try await ensureDocument(documentIdentifier)
+            try await ensureDocument(documentIdentifier, deadline: deadline)
 
             let currentHeight = max(scrollView.contentSize.height, bounds.height)
             guard abs(currentHeight - contentHeight) <= 1 else {
@@ -175,7 +175,7 @@ private extension WKWebView {
         while true {
             try Task.checkCancellation()
             try checkDeadline(deadline)
-            try await ensureDocument(documentIdentifier)
+            try await ensureDocument(documentIdentifier, deadline: deadline)
 
             let contentHeight = max(scrollView.contentSize.height, bounds.height)
             _ = try outputMetrics(contentHeight: contentHeight, options: options)
@@ -280,7 +280,7 @@ private extension WKWebView {
         }
     }
 
-    func captureDocumentIdentifier() async throws -> String {
+    func captureDocumentIdentifier(deadline: TimeInterval) async throws -> String {
         let script = """
         (() => {
             const key = "__wkContentKitDocumentIdentifierV1";
@@ -294,21 +294,27 @@ private extension WKWebView {
         })()
         """
 
-        return try await withCheckedThrowingContinuation { continuation in
-            evaluateJavaScript(script) { value, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else if let value = value as? String {
-                    continuation.resume(returning: value)
-                } else {
-                    continuation.resume(throwing: CaptureError.snapshotFailed)
-                }
+        // JavaScript evaluation counts against the capture deadline, so a page whose
+        // script never returns fails with `timedOut` instead of hanging the capture.
+        let remaining = try remainingDuration(until: deadline)
+        let evaluator: any JavaScriptEvaluating = self
+        do {
+            return try await withTimeout(
+                seconds: remaining,
+                onTimeout: CaptureError.timedOut
+            ) {
+                try await evaluateString(script, using: evaluator)
             }
+        } catch ReadinessError.invalidJavaScriptResult {
+            throw CaptureError.snapshotFailed
         }
     }
 
-    func ensureDocument(_ expectedIdentifier: String) async throws {
-        guard try await captureDocumentIdentifier() == expectedIdentifier else {
+    func ensureDocument(
+        _ expectedIdentifier: String,
+        deadline: TimeInterval
+    ) async throws {
+        guard try await captureDocumentIdentifier(deadline: deadline) == expectedIdentifier else {
             throw CaptureError.documentChangedDuringCapture
         }
     }
